@@ -1,0 +1,66 @@
+{
+  "name": "tts-reader",
+  "displayName": "TTS Reader",
+  "description": "Read text aloud using OpenAI TTS. BYOK, no cursor movement, works everywhere.",
+  "version": "0.1.0",
+  "publisher": "johannwest",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": ["Other"],
+  "activationEvents": [],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      { "command": "tts.read", "title": "TTS: Read Selection or File" },
+      { "command": "tts.stop", "title": "TTS: Stop" },
+      { "command": "tts.toggle", "title": "TTS: Toggle" },
+      { "command": "tts.setApiKey", "title": "TTS: Set OpenAI API Key" }
+    ],
+    "keybindings": [
+      { "command": "tts.read", "key": "cmd+shift+r" },
+      { "command": "tts.stop", "key": "cmd+shift+." }
+    ],
+    "menus": {
+      "editor/context": [
+        { "command": "tts.read", "group": "tts" },
+        { "command": "tts.stop", "group": "tts" }
+      ]
+    },
+    "configuration": {
+      "title": "TTS",
+      "properties": {
+        "tts.voice": {
+          "type": "string",
+          "default": "fable",
+          "enum": ["alloy", "echo", "fable", "onyx", "nova", "shimmer", "coral"],
+          "description": "OpenAI TTS voice"
+        },
+        "tts.speed": {
+          "type": "number",
+          "default": 1.0,
+          "minimum": 0.25,
+          "maximum": 4.0,
+          "description": "Playback speed"
+        },
+        "tts.model": {
+          "type": "string",
+          "default": "gpt-4o-mini-tts",
+          "enum": ["gpt-4o-mini-tts", "tts-1", "tts-1-hd"],
+          "description": "OpenAI TTS model"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.85.0",
+    "@types/node": "^20.0.0",
+    "typescript": "^5.3.0",
+    "@vscode/vsce": "^2.22.0"
+  }
+}
