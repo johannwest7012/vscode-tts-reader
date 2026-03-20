@@ -19,7 +19,7 @@
     ],
     "keybindings": [
       { "command": "tts.read", "key": "cmd+shift+r" },
-      { "command": "tts.stop", "key": "cmd+shift+." }
+      { "command": "tts.stop", "key": "cmd+escape" }
     ],
     "menus": {
       "editor/context": [

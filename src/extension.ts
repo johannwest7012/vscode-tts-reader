@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { TTSPlayer } from './tts';
-import { getTextToRead, isMarkdownFile } from './textExtractor';
+import { getTextToRead } from './textExtractor';
 import { stripMarkdown } from './markdownStripper';
 import { StatusBarManager } from './statusBar';
 import { ensureApiKey, setApiKey } from './secrets';
@@ -31,12 +31,13 @@ async function handleRead(context: vscode.ExtensionContext) {
         return;
     }
 
-    let text = getTextToRead();
-    if (!text) {
+    const extracted = getTextToRead();
+    if (!extracted) {
         return;
     }
 
-    if (isMarkdownFile()) {
+    let text = extracted.text;
+    if (extracted.languageId === 'markdown') {
         text = stripMarkdown(text);
     }
 
