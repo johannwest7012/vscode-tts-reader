@@ -1,6 +1,6 @@
 {
   "name": "tts-reader",
-  "displayName": "TTS Reader",
+  "displayName": "OpenAI TTS Reader",
   "description": "Read text aloud using OpenAI TTS. BYOK, no cursor movement, works everywhere.",
   "version": "0.1.0",
   "publisher": "johannwest",
