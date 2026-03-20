@@ -3,8 +3,8 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { spawn, ChildProcess } from 'child_process';
-import * as vscode from 'vscode';
 import * as crypto from 'crypto';
+import { IncomingMessage } from 'http';
 
 export interface TTSConfig {
     apiKey: string;
@@ -13,35 +13,66 @@ export interface TTSConfig {
     speed: number;
 }
 
+const CHUNK_SIZE = 600;
+
 export class TTSPlayer {
     private currentProcess: ChildProcess | null = null;
-    private tempFile: string | null = null;
+    private tempFiles: string[] = [];
+    private stopped = false;
     private isPlaying = false;
 
     async play(text: string, config: TTSConfig): Promise<void> {
-        // Kill any current playback
         this.stop();
+        this.stopped = false;
+        this.isPlaying = true;
 
-        const tempFile = path.join(os.tmpdir(), `tts-vscode-${crypto.randomUUID()}.mp3`);
-        this.tempFile = tempFile;
+        const chunks = splitIntoChunks(text, CHUNK_SIZE);
 
         try {
-            await this.callApi(text, config, tempFile);
-            await this.playFile(tempFile);
+            // Fetch first chunk, start playing immediately
+            let nextFetch: Promise<string> | null = null;
+
+            for (let i = 0; i < chunks.length; i++) {
+                if (this.stopped) { break; }
+
+                // Current chunk: use prefetched file or fetch now
+                const currentFile = nextFetch
+                    ? await nextFetch
+                    : await this.fetchChunk(chunks[i], config);
+
+                if (this.stopped) {
+                    this.deleteTempFile(currentFile);
+                    break;
+                }
+
+                // Start prefetching next chunk while current one plays
+                nextFetch = (i + 1 < chunks.length && !this.stopped)
+                    ? this.fetchChunk(chunks[i + 1], config)
+                    : null;
+
+                // Play current chunk
+                await this.playFile(currentFile);
+                this.deleteTempFile(currentFile);
+            }
         } catch (err: unknown) {
-            this.cleanup();
-            if (err instanceof Error && err.message !== 'stopped') {
+            if (this.stopped) { return; }
+            this.cleanupAll();
+            if (err instanceof Error) {
                 throw err;
             }
+        } finally {
+            this.isPlaying = false;
+            this.cleanupAll();
         }
     }
 
     stop(): void {
+        this.stopped = true;
         if (this.currentProcess) {
             this.currentProcess.kill();
             this.currentProcess = null;
         }
-        this.cleanup();
+        this.cleanupAll();
         this.isPlaying = false;
     }
 
@@ -53,8 +84,17 @@ export class TTSPlayer {
         return this.isPlaying;
     }
 
+    private async fetchChunk(text: string, config: TTSConfig): Promise<string> {
+        const tempFile = path.join(os.tmpdir(), `tts-vscode-${crypto.randomUUID()}.mp3`);
+        this.tempFiles.push(tempFile);
+        await this.callApi(text, config, tempFile);
+        return tempFile;
+    }
+
     private callApi(text: string, config: TTSConfig, outFile: string): Promise<void> {
         return new Promise((resolve, reject) => {
+            if (this.stopped) { reject(new Error('stopped')); return; }
+
             const body = JSON.stringify({
                 model: config.model,
                 voice: config.voice,
@@ -73,10 +113,10 @@ export class TTSPlayer {
                         'Content-Length': Buffer.byteLength(body),
                     },
                 },
-                (res) => {
+                (res: IncomingMessage) => {
                     if (res.statusCode && res.statusCode >= 400) {
                         let errorBody = '';
-                        res.on('data', (chunk) => (errorBody += chunk));
+                        res.on('data', (chunk: Buffer) => (errorBody += chunk));
                         res.on('end', () => {
                             try {
                                 const parsed = JSON.parse(errorBody);
@@ -98,7 +138,7 @@ export class TTSPlayer {
                 }
             );
 
-            req.on('error', (err) => {
+            req.on('error', (err: Error) => {
                 reject(new Error(`Network error: ${err.message}`));
             });
 
@@ -109,26 +149,18 @@ export class TTSPlayer {
 
     private playFile(filePath: string): Promise<void> {
         return new Promise((resolve, reject) => {
-            this.isPlaying = true;
+            if (this.stopped) { resolve(); return; }
+
             const proc = spawn('afplay', [filePath]);
             this.currentProcess = proc;
 
-            proc.on('close', (code) => {
+            proc.on('close', () => {
                 this.currentProcess = null;
-                this.isPlaying = false;
-                this.cleanup();
-                if (code === 0 || code === null) {
-                    resolve();
-                } else {
-                    // code 9 = killed (our stop()), not an error
-                    resolve();
-                }
+                resolve();
             });
 
-            proc.on('error', (err) => {
+            proc.on('error', (err: Error) => {
                 this.currentProcess = null;
-                this.isPlaying = false;
-                this.cleanup();
                 if (err.message.includes('ENOENT')) {
                     reject(new Error('afplay not found. This extension currently supports macOS only.'));
                 } else {
@@ -138,14 +170,69 @@ export class TTSPlayer {
         });
     }
 
-    private cleanup(): void {
-        if (this.tempFile) {
-            try {
-                fs.unlinkSync(this.tempFile);
-            } catch {
-                // File may already be deleted
-            }
-            this.tempFile = null;
-        }
+    private deleteTempFile(filePath: string): void {
+        try { fs.unlinkSync(filePath); } catch { /* already gone */ }
+        this.tempFiles = this.tempFiles.filter((f) => f !== filePath);
     }
+
+    private cleanupAll(): void {
+        for (const f of this.tempFiles) {
+            try { fs.unlinkSync(f); } catch { /* already gone */ }
+        }
+        this.tempFiles = [];
+    }
+}
+
+function splitIntoChunks(text: string, maxLen: number): string[] {
+    if (text.length <= maxLen) {
+        return [text];
+    }
+
+    const chunks: string[] = [];
+    let remaining = text;
+
+    while (remaining.length > 0) {
+        if (remaining.length <= maxLen) {
+            chunks.push(remaining);
+            break;
+        }
+
+        // Find the last sentence boundary within maxLen
+        let splitAt = -1;
+        const searchRegion = remaining.substring(0, maxLen);
+
+        // Prefer splitting at sentence endings (.!?) followed by space
+        for (let i = searchRegion.length - 1; i >= maxLen * 0.4; i--) {
+            if (/[.!?]/.test(searchRegion[i]) && (i + 1 >= searchRegion.length || /\s/.test(searchRegion[i + 1]))) {
+                splitAt = i + 1;
+                break;
+            }
+        }
+
+        // Fall back to newline
+        if (splitAt === -1) {
+            const lastNewline = searchRegion.lastIndexOf('\n');
+            if (lastNewline > maxLen * 0.4) {
+                splitAt = lastNewline + 1;
+            }
+        }
+
+        // Fall back to last space
+        if (splitAt === -1) {
+            const lastSpace = searchRegion.lastIndexOf(' ');
+            if (lastSpace > maxLen * 0.3) {
+                splitAt = lastSpace + 1;
+            }
+        }
+
+        // Hard cut as last resort
+        if (splitAt === -1) {
+            splitAt = maxLen;
+        }
+
+        chunks.push(remaining.substring(0, splitAt).trim());
+        remaining = remaining.substring(splitAt).trim();
+    }
+
+    return chunks.filter((c) => c.length > 0);
 }

@@ -4,6 +4,7 @@ import { getTextToRead } from './textExtractor';
 import { stripMarkdown } from './markdownStripper';
 import { StatusBarManager } from './statusBar';
 import { ensureApiKey, setApiKey } from './secrets';
+import { SettingsViewProvider } from './settingsPanel';
 
 let player: TTSPlayer;
 let statusBar: StatusBarManager;
@@ -12,7 +13,10 @@ export function activate(context: vscode.ExtensionContext) {
     player = new TTSPlayer();
     statusBar = new StatusBarManager(context);
 
+    const settingsProvider = new SettingsViewProvider(context);
+
     context.subscriptions.push(
+        vscode.window.registerWebviewViewProvider(SettingsViewProvider.viewType, settingsProvider),
         vscode.commands.registerCommand('tts.read', () => handleRead(context)),
         vscode.commands.registerCommand('tts.stop', () => handleStop()),
         vscode.commands.registerCommand('tts.toggle', () => statusBar.toggle()),

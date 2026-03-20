@@ -11,6 +11,24 @@
   "activationEvents": [],
   "main": "./out/extension.js",
   "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "tts",
+          "title": "TTS Reader",
+          "icon": "$(unmute)"
+        }
+      ]
+    },
+    "views": {
+      "tts": [
+        {
+          "type": "webview",
+          "id": "tts.settingsView",
+          "name": "Settings"
+        }
+      ]
+    },
     "commands": [
       { "command": "tts.read", "title": "TTS: Read Selection or File" },
       { "command": "tts.stop", "title": "TTS: Stop" },
@@ -33,7 +51,7 @@
         "tts.voice": {
           "type": "string",
           "default": "fable",
-          "enum": ["alloy", "echo", "fable", "onyx", "nova", "shimmer", "coral"],
+          "enum": ["alloy", "ash", "coral", "echo", "fable", "nova", "onyx", "sage", "shimmer"],
           "description": "OpenAI TTS voice"
         },
         "tts.speed": {
